@@ -33,8 +33,16 @@ namespace EmployeeManagement
                 app.UseDeveloperExceptionPage();
             }
 
-            app.UseDefaultFiles();
-            app.UseStaticFiles();
+            /***********************************
+            *   app.UseFileServer(); combines the functionality of followings:
+            *   app.UseDefaultFiles();
+            *   app.UseStaticFiles();
+            *   app.UseDirectoryBrowser();
+            ************************************/
+            FileServerOptions fileServerOptions = new FileServerOptions();
+            fileServerOptions.DefaultFilesOptions.DefaultFileNames.Clear();
+            fileServerOptions.DefaultFilesOptions.DefaultFileNames.Add("foo.html");
+            app.UseFileServer(fileServerOptions);
 
             app.Run(async (context) =>
             {
