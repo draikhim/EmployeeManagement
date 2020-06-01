@@ -1,9 +1,13 @@
 ﻿using EmployeeManagement.Models;
+using EmployeeManagement.Security;
 using EmployeeManagement.ViewModels;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
@@ -19,24 +23,38 @@ namespace EmployeeManagement.Controllers
         private readonly IEmployeeRepository _employeeRepository;
         private readonly IHostingEnvironment hostingEnvironment;
         private readonly ILogger logger;
+        private readonly AppDbContext context;
+        private readonly IDataProtector protector;
 
-        public HomeController(IEmployeeRepository employeeRepository, IHostingEnvironment hostingEnvironment,
-                                ILogger<HomeController> logger)
+        public HomeController(IEmployeeRepository employeeRepository,
+                                IHostingEnvironment hostingEnvironment,
+                                ILogger<HomeController> logger,
+                                IDataProtectionProvider dataProtectionProvider,
+                                DataProtectionPurposeStrings dataProtectionPurposeStrings,
+                                AppDbContext context)
         {
             _employeeRepository = employeeRepository;
             this.hostingEnvironment = hostingEnvironment;
             this.logger = logger;
+            this.context = context;
+            protector = dataProtectionProvider
+                        .CreateProtector(dataProtectionPurposeStrings.EmployeeIdRouteValue);
         }
 
         [AllowAnonymous]
         public ViewResult Index()
         {
-            var model = _employeeRepository.GetAllEmployees();
+            var model = _employeeRepository.GetAllEmployees()
+                            .Select(e =>
+                            {
+                                e.EncryptedId = protector.Protect(e.Id.ToString());
+                                return e;
+                            });
             return View(model);
         }
 
         [AllowAnonymous]
-        public ViewResult Details(int? id)
+        public ViewResult Details(string id)
         {
             /********************************************************************************************************************
              * Different methods to pass data from controller to view
@@ -53,12 +71,14 @@ namespace EmployeeManagement.Controllers
             logger.LogError("Error Log");
             logger.LogCritical("Critical Log");
 
-            Employee employee = _employeeRepository.GetEmployee(id.Value);
+            int employeeId = Convert.ToInt32(protector.Unprotect(id));
+
+            Employee employee = _employeeRepository.GetEmployee(employeeId);
 
             if(employee == null)
             {
                 Response.StatusCode = 404;
-                return View("EmployeeNotFound", id.Value);
+                return View("EmployeeNotFound", employeeId);
             }
 
             HomeDetailsViewModel homeDetailsViewModel = new HomeDetailsViewModel()
@@ -91,7 +111,8 @@ namespace EmployeeManagement.Controllers
                     PhotoPath = uniqueFileName
                 };
                 _employeeRepository.Add(newEmployee);
-                return RedirectToAction("details", new { id = newEmployee.Id });
+                //return RedirectToAction("details", new { id = newEmployee.Id });
+                return RedirectToAction("details", new { id = protector.Protect(newEmployee.Id.ToString()) });
             }
 
             return View();
@@ -155,5 +176,35 @@ namespace EmployeeManagement.Controllers
 
             return uniqueFileName;
         }
+
+        public async Task<IActionResult> Delete(int? id)
+        {
+            if (id == null)
+            {
+                return NotFound();
+            }
+
+            var employee = await context.Employees
+                .FirstOrDefaultAsync(e => e.Id == id);
+            if (employee == null)
+            {
+                return NotFound();
+            }
+            context.Employees.Remove(employee);
+            await context.SaveChangesAsync();
+            return RedirectToAction(nameof(Index));
+            //return View(employee);
+        }
+
+        //// POST: 
+        //[HttpPost, ActionName("Delete")]
+        //[ValidateAntiForgeryToken]
+        //public async Task<IActionResult> DeleteConfirmed(int id)
+        //{
+        //    var employee = await context.Employees.FindAsync(id);
+        //    context.Employees.Remove(employee);
+        //    await context.SaveChangesAsync();
+        //    return RedirectToAction(nameof(Index));
+        //}
     }
 }
